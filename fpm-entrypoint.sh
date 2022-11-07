@@ -19,10 +19,36 @@ then
   PACKAGE_PROVIDES=kong-community-edition
 fi
 
-
 if [ -z "$PACKAGE_REPLACES" ]
 then
   PACKAGE_REPLACES=kong-community-edition
+fi
+
+if [ "$KONG_PACKAGE_NAME" = "kong" ];
+then
+  PACKAGE_CONFLICTS=kong-enterprise-edition
+  PACKAGE_CONFLICTS_2=kong-enterprise-edition-fips
+
+  PACKAGE_REPLACES=kong-community-edition
+  PACKAGE_REPLACES_2=kong-enterprise-edition-fips
+
+elif [ "$KONG_PACKAGE_NAME" = "kong-enterprise-edition" ]
+then
+  PACKAGE_CONFLICTS=kong-community-edition
+  PACKAGE_CONFLICTS_2=kong-enterprise-edition-fips
+
+  PACKAGE_REPLACES=kong-community-edition
+  PACKAGE_REPLACES_2=kong-enterprise-edition-fips
+
+elif [ "$KONG_PACKAGE_NAME" = "kong-enterprise-edition-fips" ] || [ "$SSL_PROVIDER" = "boringssl" ]
+then
+  KONG_PACKAGE_NAME=kong-enterprise-edition-fips
+  PACKAGE_CONFLICTS=kong-community-edition
+  PACKAGE_CONFLICTS_2=kong-enterprise-edition
+
+  PACKAGE_REPLACES=kong-community-edition
+  PACKAGE_REPLACES_2=kong-enterprise-edition
+
 fi
 
 FPM_PARAMS=""
@@ -38,41 +64,53 @@ elif [ "$PACKAGE_TYPE" == "rpm" ]; then
   if [ "$RESTY_IMAGE_BASE" == "amazonlinux" ]; then
     OUTPUT_FILE_SUFFIX=".aws"
     FPM_PARAMS="$FPM_PARAMS -d /usr/sbin/useradd -d /usr/sbin/groupadd"
+    if [ "$RESTY_IMAGE_TAG" == "2022" ]; then
+      FPM_PARAMS="$FPM_PARAMS -d libxcrypt-compat"
+    fi
   fi
   if [ "$RESTY_IMAGE_BASE" == "centos" ]; then
     OUTPUT_FILE_SUFFIX=".el${RESTY_IMAGE_TAG}"
   fi
 fi
-OUTPUT_FILE_SUFFIX="${OUTPUT_FILE_SUFFIX}."$(echo ${BUILDPLATFORM} | awk -F "/" '{ print $2}')
-
+OUTPUT_FILE_SUFFIX="${OUTPUT_FILE_SUFFIX}."$(echo ${TARGETPLATFORM} | awk -F "/" '{ print $2}')
 ROCKSPEC_VERSION=`basename /tmp/build/build/usr/local/lib/luarocks/rocks/kong/*`
 
 if [ "$PACKAGE_TYPE" == "apk" ]; then
   pushd /tmp/build
     mkdir /output
-    tar -zcvf /output/${KONG_PACKAGE_NAME}-${KONG_VERSION}${OUTPUT_FILE_SUFFIX}.apk.tar.gz usr etc
+    tar -zcvf /output/${KONG_PACKAGE_NAME}-${KONG_RELEASE_LABEL}${OUTPUT_FILE_SUFFIX}.apk.tar.gz usr etc
   popd
 else
   fpm -f -s dir \
     -t $PACKAGE_TYPE \
     -m 'support@konghq.com' \
     -n $KONG_PACKAGE_NAME \
-    -v $KONG_VERSION \
+    -v $KONG_RELEASE_LABEL \
     $FPM_PARAMS \
     --description 'Kong is a distributed gateway for APIs and Microservices, focused on high performance and reliability.' \
     --vendor 'Kong Inc.' \
     --license "ASL 2.0" \
     --conflicts $PACKAGE_CONFLICTS \
+    --conflicts $PACKAGE_CONFLICTS_2 \
     --provides $PACKAGE_PROVIDES \
     --replaces $PACKAGE_REPLACES \
     --after-install '/after-install.sh' \
     --url 'https://getkong.org/' usr etc lib \
   && mkdir /output/ \
-  && mv kong*.* /output/${KONG_PACKAGE_NAME}-${KONG_VERSION}${OUTPUT_FILE_SUFFIX}.${PACKAGE_TYPE}
+  && mv kong*.* /output/${KONG_PACKAGE_NAME}-${KONG_RELEASE_LABEL}${OUTPUT_FILE_SUFFIX}.${PACKAGE_TYPE}
   set -x
   if [ "$PACKAGE_TYPE" == "rpm" ] && [ ! -z "$PRIVATE_KEY_PASSPHRASE" ]; then
-    gpg --import /kong.private.asc
-    echo "$PRIVATE_KEY_PASSPHRASE" | rpm --addsign /output/${KONG_PACKAGE_NAME}-${KONG_VERSION}${OUTPUT_FILE_SUFFIX}.${PACKAGE_TYPE}
+    apt-get update
+    apt-get install -y expect
+    mkdir -p ~/.gnupg/
+    touch ~/.gnupg/gpg.conf
+    echo use-agent >> ~/.gnupg/gpg.conf
+    echo pinentry-mode loopback >> ~/.gnupg/gpg.conf
+    echo allow-loopback-pinentry >> ~/.gnupg/gpg-agent.conf
+    echo RELOADAGENT | gpg-connect-agent
+    cp /.rpmmacros ~/
+    gpg --batch --import /kong.private.asc
+    /sign-rpm.exp /output/${KONG_PACKAGE_NAME}-${KONG_RELEASE_LABEL}${OUTPUT_FILE_SUFFIX}.${PACKAGE_TYPE}
   fi
 fi
 

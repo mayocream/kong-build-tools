@@ -43,7 +43,11 @@ wait_for() {
 }
 
 start_kong() {
-  KONG_TEST_IMAGE_NAME=${1:-$KONG_TEST_IMAGE_NAME} docker-compose -f "$TEST_COMPOSE_PATH" up -d
+  KONG_FIPS=off
+  if [ "$SSL_PROVIDER" = "boringssl" ]; then
+    KONG_FIPS=on
+  fi
+  KONG_FIPS=$KONG_FIPS KONG_TEST_IMAGE_NAME=${1:-$KONG_TEST_IMAGE_NAME} docker-compose -f "$TEST_COMPOSE_PATH" up -d
 }
 
 stop_kong() {
@@ -95,7 +99,7 @@ assert_response() {
 it_runs_free_enterprise() {
   info=$(curl $KONG_ADMIN_URI)
   msg_test "it does not have ee-only plugins"
-  [ "$(echo $info | jq -r .plugins.available_on_server.collector)" != "true" ]
+  [ "$(echo $info | jq -r .plugins.available_on_server.canary)" != "true" ]
   msg_test "it does not enable vitals"
   [ "$(echo $info | jq -r .configuration.vitals)" == "false" ]
   msg_test "workspaces are not writable"
@@ -105,7 +109,7 @@ it_runs_free_enterprise() {
 it_runs_full_enterprise() {
   info=$(curl $KONG_ADMIN_URI)
   msg_test "it does have ee-only plugins"
-  [ "$(echo $info | jq -r .plugins.available_on_server.collector)" == "true" ]
+  [ "$(echo $info | jq -r .plugins.available_on_server | jq -r 'has("canary")')" == "true" ]
   msg_test "it does enable vitals"
   [ "$(echo $info | jq -r .configuration.vitals)" == "true" ]
   msg_test "workspaces are writable"

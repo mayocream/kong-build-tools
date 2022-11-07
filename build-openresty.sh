@@ -18,8 +18,6 @@ error_handler() {
 # If an error occurs, run our error handler to output a tail of the build
 trap 'error_handler' ERR
 
-# Set up a repeating loop to send some output to Travis.
-
 bash -c "while true; do echo \$(date) - building ...; sleep $PING_SLEEP; done" &
 PING_LOOP_PID=$!
 
@@ -54,6 +52,21 @@ then
   RESTY_EVENTS=0
 fi
 
+if [ -z "$ATC_ROUTER" ]
+then
+  ATC_ROUTER=0
+fi
+
+if [ -z "$RESTY_BORINGSSL_VERSION" ]
+then
+  RESTY_BORINGSSL_VERSION=0
+fi
+
+if [ -z "$RESTY_OPENSSL_VERSION" ]
+then
+  RESTY_OPENSSL_VERSION=0
+fi
+
 LUAROCKS_PREFIX=/usr/local \
 LUAROCKS_DESTDIR=/tmp/build \
 OPENRESTY_PREFIX=/usr/local/openresty \
@@ -63,20 +76,24 @@ OPENSSL_DESTDIR=/tmp/build \
 OPENRESTY_RPATH=/usr/local/kong/lib \
 OPENRESTY_PATCHES=$OPENRESTY_PATCHES \
 EDITION=$EDITION \
+ENABLE_KONG_LICENSING=$ENABLE_KONG_LICENSING \
 /tmp/openresty-build-tools/kong-ngx-build -p /tmp/build/usr/local \
 --openresty $RESTY_VERSION \
 --openssl $RESTY_OPENSSL_VERSION \
+--boringssl $RESTY_BORINGSSL_VERSION \
+--ssl-provider $SSL_PROVIDER \
 --resty-lmdb $RESTY_LMDB \
 --resty-websocket $RESTY_WEBSOCKET \
 --resty-events $RESTY_EVENTS \
+--atc-router $ATC_ROUTER \
 --luarocks $RESTY_LUAROCKS_VERSION \
 --kong-nginx-module $KONG_NGINX_MODULE \
 --pcre $RESTY_PCRE_VERSION \
 --work /work $KONG_NGX_BUILD_ARGS >> $BUILD_OUTPUT 2>&1
+
 
 # The build finished without returning an error so dump a tail of the output
 dump_output
 
 # nicely terminate the ping output loop
 kill $PING_LOOP_PID
-
